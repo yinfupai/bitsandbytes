@@ -252,15 +252,34 @@ class Optimizer8bit(torch.optim.Optimizer):
             self.to_gpu()  # needed for fairseq pure fp16 training
             self.initialized = True
 
-        for gindex, group in enumerate(self.param_groups):
-            for pindex, p in enumerate(group["params"]):
+        """use the lion by google
+        for group in self.param_groups:
+            for p in group['params']:
                 if p.grad is None:
                     continue
-                state = self.state[p]
-                if len(state) == 0:
-                    self.init_state(group, p, gindex, pindex)
 
-                self.update_step(group, p, gindex, pindex)
+                # ------------------------------------------
+                # Perform stepweight decay
+                p.data.mul_(1 - group['lr'] * group['weight_decay'])
+                #-------------------------------------------
+
+                grad = p.grad
+
+                state = self.state[p]
+                # State initialization
+                if len(state) == 0:
+                    # Exponential moving average of gradient values
+                    state['exp_avg'] = torch.zeros_like(p)
+
+                exp_avg = state['exp_avg']
+                beta1, beta2 = group['betas']
+
+                # Weight update
+                update = exp_avg * beta1 + grad * (1 - beta1)
+                p.add_(torch.sign(update), alpha=-group['lr'])
+
+                # Decay the momentum running average coefficient
+                exp_avg.mul_(beta2).add_(grad, alpha=1 - beta2)
 
         return loss
 
